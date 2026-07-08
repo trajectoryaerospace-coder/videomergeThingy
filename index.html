@@ -98,7 +98,7 @@
         </div>
 
         <button id="mergeBtn" class="btn">Stitch Into 1 Video</button>
-        <button id="downloadBtn" class="btn">Click 3 dot to download</button>
+        <button id="downloadBtn" class="btn">Download Finished Video</button>
         
         <div id="status">Waiting for files...</div>
         <video id="outputVideo" class="video-preview" controls></video>
@@ -122,6 +122,7 @@
         let selectedFiles = [];
         let finalMp4Url = null;
         let isProcessing = false;
+        let optimalMimeType = 'video/mp4;codecs=avc1,mp4a.40.2'; // Moved to global scope so download button can read it
 
         // Persistent audio routing components
         let audioCtx = null;
@@ -184,11 +185,10 @@
                 }
 
                 // Auto-detect container structures supported by the current device
-                let optimalMimeType = 'video/mp4;codecs=avc1,mp4a.40.2';
                 if (!MediaRecorder.isTypeSupported(optimalMimeType)) optimalMimeType = 'video/mp4';
                 if (!MediaRecorder.isTypeSupported(optimalMimeType)) optimalMimeType = 'video/webm;codecs=vp8,opus';
 
-                const canvasStream = hiddenCanvas.captureStream(30);
+                const canvasStream = hiddenCanvas.captureStream(30); // Locks recording capture pace at 30fps
                 const outputStream = new MediaStream([
                     ...canvasStream.getVideoTracks(),
                     ...audioDest.stream.getAudioTracks()
@@ -212,7 +212,7 @@
                         hiddenPlayer.onloadeddata = () => {
                             hiddenPlayer.muted = false; // CRITICAL: Forces browser to keep audio processing alive
                             hiddenPlayer.volume = 1.0;
-                            hiddenPlayer.playbackRate = 2.0; // Fast 2x processing
+                            hiddenPlayer.playbackRate = 1.0; // Restored to 1.0 standard normal speed
                             hiddenPlayer.play().catch(reject);
                             renderFrame();
                             resolve();
