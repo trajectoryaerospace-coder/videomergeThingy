@@ -1,0 +1,255 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Stream-Based Video Merger</title>
+    <style>
+        :root {
+            --bg-color: #0f172a;
+            --card-bg: #1e293b;
+            --accent-color: #3b82f6;
+            --accent-hover: #2563eb;
+            --success-color: #10b981;
+            --success-hover: #059669;
+            --text-main: #f8fafc;
+            --text-muted: #94a3b8;
+            --border-color: #334155;
+        }
+
+        body {
+            font-family: 'Segoe UI', Roboto, Arial, sans-serif;
+            background-color: var(--bg-color);
+            color: var(--text-main);
+            margin: 0;
+            padding: 40px 20px;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            min-height: 100vh;
+        }
+
+        .wrapper {
+            width: 100%;
+            max-width: 600px;
+            background: var(--card-bg);
+            padding: 30px;
+            border-radius: 16px;
+            box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+            border: 1px solid var(--border-color);
+            text-align: center;
+        }
+
+        h2 { margin-top: 0; font-size: 24px; font-weight: 600; }
+        p.subtitle { color: var(--text-muted); font-size: 14px; margin-bottom: 25px; }
+
+        .upload-zone {
+            border: 2px dashed var(--border-color);
+            padding: 35px 20px;
+            border-radius: 12px;
+            background: rgba(15, 23, 42, 0.4);
+            cursor: pointer;
+            position: relative;
+        }
+
+        .upload-zone:hover { border-color: var(--accent-color); }
+
+        .upload-zone input[type="file"] {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%; opacity: 0; cursor: pointer;
+        }
+
+        .btn {
+            margin-top: 25px;
+            width: 100%;
+            padding: 14px;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            font-size: 16px;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        #mergeBtn { background-color: var(--accent-color); display: none; }
+        #mergeBtn:hover { background-color: var(--accent-hover); }
+        #mergeBtn:disabled { background-color: #475569; cursor: not-allowed; }
+        
+        #downloadBtn { background-color: var(--success-color); display: none; }
+        #downloadBtn:hover { background-color: var(--success-hover); }
+
+        #status { margin-top: 20px; font-size: 14px; color: var(--text-muted); line-height: 1.5; }
+        .video-preview { margin-top: 30px; width: 100%; border-radius: 12px; border: 1px solid var(--border-color); background: #000; display: none; }
+    </style>
+</head>
+<body>
+
+    <div class="wrapper">
+        <h2>Video merger thingy for zan to earn her a 1,000,000 or smth</h2>
+        <p class="subtitle">meow</p>
+        
+        <div class="upload-zone">
+            <span style="font-size: 40px; display:block; margin-bottom:10px;">🎬</span>
+            <div id="upload-text">Click to choose 2+ MP4 files</div>
+            <input type="file" id="videoInput" accept="video/mp4" multiple>
+        </div>
+
+        <button id="mergeBtn" class="btn">Stitch & Render Master Video</button>
+        <button id="downloadBtn" class="btn">⬇️ Download Finished MP4</button>
+        
+        <div id="status">Waiting for ze videos</div>
+        <video id="outputVideo" class="video-preview" controls></video>
+    </div>
+
+    <video id="hiddenPlayer" style="display:none;" muted playsinline></video>
+    <canvas id="hiddenCanvas" style="display:none;"></canvas>
+
+    <script>
+        const videoInput = document.getElementById('videoInput');
+        const mergeBtn = document.getElementById('mergeBtn');
+        const downloadBtn = document.getElementById('downloadBtn');
+        const status = document.getElementById('status');
+        const uploadText = document.getElementById('upload-text');
+        const outputVideo = document.getElementById('outputVideo');
+        
+        const hiddenPlayer = document.getElementById('hiddenPlayer');
+        const hiddenCanvas = document.getElementById('hiddenCanvas');
+        const ctx = hiddenCanvas.getContext('2d');
+
+        let selectedFiles = [];
+        let finalBlobUrl = null;
+
+        videoInput.addEventListener('change', () => {
+            selectedFiles = Array.from(videoInput.files);
+            if (selectedFiles.length >= 2) {
+                uploadText.innerHTML = `<strong>${selectedFiles.length} videos loaded</strong>`;
+                status.innerText = "Ready to compile via isolated recording stream.";
+                mergeBtn.style.display = "block";
+                downloadBtn.style.display = "none";
+                outputVideo.style.display = "none";
+            } else {
+                mergeBtn.style.display = "none";
+                status.innerText = "Please select at least 2 files.";
+            }
+        });
+
+        mergeBtn.addEventListener('click', async () => {
+            mergeBtn.disabled = true;
+            status.innerText = "Preparing video tracks... Clips will process sequentially at normal speed.";
+
+            let recordedChunks = [];
+            let canvasStream = null;
+            let audioDestination = null;
+            let audioContext = null;
+            let mediaRecorder = null;
+            
+            // Fixed target resolution canvas
+            const targetW = 854;
+            const targetH = 480;
+            hiddenCanvas.width = targetW;
+            hiddenCanvas.height = targetH;
+
+            let drawLoop;
+            function startDrawing() {
+                drawLoop = setInterval(() => {
+                    // Fill canvas background with black
+                    ctx.fillStyle = "black";
+                    ctx.fillRect(0, 0, targetW, targetH);
+
+                    // Compute aspect ratio constraints to fit perfectly inside 480p without stretching
+                    const vW = hiddenPlayer.videoWidth;
+                    const vH = hiddenPlayer.videoHeight;
+                    const ratio = Math.min(targetW / vW, targetH / vH);
+                    const newW = vW * ratio;
+                    const newH = vH * ratio;
+                    const x = (targetW - newW) / 2;
+                    const y = (targetH - newH) / 2;
+
+                    ctx.drawImage(hiddenPlayer, x, y, newW, newH);
+                }, 1000 / 30); // 30 FPS tracking
+            }
+
+            function stopDrawing() {
+                clearInterval(drawLoop);
+            }
+
+            // Loop and play through every single file to stream record them sequential
+            for (let i = 0; i < selectedFiles.length; i++) {
+                status.innerText = `Recording video ${i + 1} of ${selectedFiles.length}... Do not close this tab.`;
+                
+                const fileUrl = URL.createObjectURL(selectedFiles[i]);
+                hiddenPlayer.src = fileUrl;
+                
+                await new Promise((resolve) => {
+                    hiddenPlayer.onloadeddata = () => {
+                        hiddenPlayer.play();
+                        startDrawing();
+
+                        // Lazy initialize recorder tracks on the first file run execution
+                        if (!mediaRecorder) {
+                            canvasStream = hiddenCanvas.captureStream(30);
+                            
+                            // Native Web Audio Routing to capture video element audio cleanly
+                            audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                            audioDestination = audioContext.createMediaStreamDestination();
+                            const source = audioContext.createMediaElementSource(hiddenPlayer);
+                            source.connect(audioDestination);
+                            source.connect(audioContext.destination); // Let user hear sound during compile if unmuted
+
+                            // Combine video frame stream and high fidelity audio track stream together
+                            const combinedStream = new MediaStream([
+                                ...canvasStream.getVideoTracks(),
+                                ...audioDestination.stream.getAudioTracks()
+                            ]);
+
+                            // Set up recorder
+                            mediaRecorder = new MediaRecorder(combinedStream, { mimeType: 'video/webm;codecs=vp8,opus' });
+                            mediaRecorder.ondataavailable = (e) => {
+                                if (e.data.size > 0) recordedChunks.push(e.data);
+                            };
+                            mediaRecorder.start(1000); // Save chunks every second to protect memory
+                        }
+                        resolve();
+                    };
+                });
+
+                // Wait until this specific video plays out completely to its natural end
+                await new Promise((resolve) => {
+                    hiddenPlayer.onended = () => {
+                        stopDrawing();
+                        URL.revokeObjectURL(fileUrl);
+                        resolve();
+                    };
+                });
+            }
+
+            // Finish up streams recording completely
+            status.innerText = "Wrapping up master track file wrapper details...";
+            mediaRecorder.stop();
+            
+            mediaRecorder.onstop = () => {
+                const finalBlob = new Blob(recordedChunks, { type: 'video/webm' });
+                finalBlobUrl = URL.createObjectURL(finalBlob);
+                
+                outputVideo.src = finalBlobUrl;
+                outputVideo.style.display = "block";
+                downloadBtn.style.display = "block";
+                
+                status.innerText = "Success! Your fully stitched file is ready to view and download.";
+                mergeBtn.disabled = false;
+                if(audioContext) audioContext.close();
+            };
+        });
+
+        downloadBtn.addEventListener('click', () => {
+            if (!finalBlobUrl) return;
+            const a = document.createElement('a');
+            a.href = finalBlobUrl;
+            a.download = 'perfectly_merged_stream.webm';
+            document.body.appendChild(a);
+            a.click();
+            document.body.removeChild(a);
+        });
+    </script>
+</body>
+</html>
