@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Stream-Based Video Merger</title>
+    <title>High-Speed Video Merger</title>
     <style>
         :root {
             --bg-color: #0f172a;
@@ -80,13 +80,24 @@
 
         #status { margin-top: 20px; font-size: 14px; color: var(--text-muted); line-height: 1.5; }
         .video-preview { margin-top: 30px; width: 100%; border-radius: 12px; border: 1px solid var(--border-color); background: #000; display: none; }
+        
+        /* Keeps player fully processing in DOM without breaking frames or being visible */
+        .invisible-engine {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 1px;
+            height: 1px;
+            opacity: 0.01;
+            pointer-events: none;
+        }
     </style>
 </head>
 <body>
 
     <div class="wrapper">
-        <h2>Video merger thingy for zan to earn her a 1,000,000 or smth</h2>
-        <p class="subtitle">meow</p>
+        <h2>Turbo Video Merger</h2>
+        <p class="subtitle">Accelerated sequential stitching with full audio capture and auto-scaling layout protection.</p>
         
         <div class="upload-zone">
             <span style="font-size: 40px; display:block; margin-bottom:10px;">🎬</span>
@@ -97,12 +108,12 @@
         <button id="mergeBtn" class="btn">Stitch & Render Master Video</button>
         <button id="downloadBtn" class="btn">⬇️ Download Finished MP4</button>
         
-        <div id="status">Waiting for ze videos</div>
+        <div id="status">Waiting for files...</div>
         <video id="outputVideo" class="video-preview" controls></video>
     </div>
 
-    <video id="hiddenPlayer" style="display:none;" muted playsinline></video>
-    <canvas id="hiddenCanvas" style="display:none;"></canvas>
+    <video id="hiddenPlayer" class="invisible-engine" playsinline crossorigin="anonymous"></video>
+    <canvas id="hiddenCanvas" class="invisible-engine"></canvas>
 
     <script>
         const videoInput = document.getElementById('videoInput');
@@ -118,12 +129,13 @@
 
         let selectedFiles = [];
         let finalBlobUrl = null;
+        let isProcessing = false;
 
         videoInput.addEventListener('change', () => {
             selectedFiles = Array.from(videoInput.files);
             if (selectedFiles.length >= 2) {
                 uploadText.innerHTML = `<strong>${selectedFiles.length} videos loaded</strong>`;
-                status.innerText = "Ready to compile via isolated recording stream.";
+                status.innerText = "Ready to compile at 4x turbo speed with fixed audio routing.";
                 mergeBtn.style.display = "block";
                 downloadBtn.style.display = "none";
                 outputVideo.style.display = "none";
@@ -135,96 +147,89 @@
 
         mergeBtn.addEventListener('click', async () => {
             mergeBtn.disabled = true;
-            status.innerText = "Preparing video tracks... Clips will process sequentially at normal speed.";
+            isProcessing = true;
+            status.innerText = "Initializing sound cards and acceleration layers...";
 
             let recordedChunks = [];
-            let canvasStream = null;
-            let audioDestination = null;
-            let audioContext = null;
-            let mediaRecorder = null;
-            
-            // Fixed target resolution canvas
             const targetW = 854;
             const targetH = 480;
             hiddenCanvas.width = targetW;
             hiddenCanvas.height = targetH;
 
-            let drawLoop;
-            function startDrawing() {
-                drawLoop = setInterval(() => {
-                    // Fill canvas background with black
-                    ctx.fillStyle = "black";
-                    ctx.fillRect(0, 0, targetW, targetH);
+            // Unlock and spin up Audio routing directly from the user's click gesture
+            const audioContext = new (window.AudioContext || window.webkitAudioContext)();
+            await audioContext.resume();
+            
+            const audioDestination = audioContext.createMediaStreamDestination();
+            const audioSource = audioContext.createMediaElementSource(hiddenPlayer);
+            audioSource.connect(audioDestination);
 
-                    // Compute aspect ratio constraints to fit perfectly inside 480p without stretching
-                    const vW = hiddenPlayer.videoWidth;
-                    const vH = hiddenPlayer.videoHeight;
+            // Set up high-speed frame processing loop
+            function renderFrame() {
+                if (!isProcessing) return;
+
+                ctx.fillStyle = "black";
+                ctx.fillRect(0, 0, targetW, targetH);
+
+                const vW = hiddenPlayer.videoWidth;
+                const vH = hiddenPlayer.videoHeight;
+                if (vW && vH) {
                     const ratio = Math.min(targetW / vW, targetH / vH);
                     const newW = vW * ratio;
                     const newH = vH * ratio;
-                    const x = (targetW - newW) / 2;
-                    const y = (targetH - newH) / 2;
+                    ctx.drawImage(hiddenPlayer, (targetW - newW) / 2, (targetH - newH) / 2, newW, newH);
+                }
 
-                    ctx.drawImage(hiddenPlayer, x, y, newW, newH);
-                }, 1000 / 30); // 30 FPS tracking
+                // Request next frame directly from hardware clock
+                if ('requestVideoFrameCallback' in hiddenPlayer) {
+                    hiddenPlayer.requestVideoFrameCallback(renderFrame);
+                } else {
+                    requestAnimationFrame(renderFrame);
+                }
             }
 
-            function stopDrawing() {
-                clearInterval(drawLoop);
-            }
+            const canvasStream = hiddenCanvas.captureStream(30);
+            const combinedStream = new MediaStream([
+                ...canvasStream.getVideoTracks(),
+                ...audioDestination.stream.getAudioTracks()
+            ]);
 
-            // Loop and play through every single file to stream record them sequential
+            const mediaRecorder = new MediaRecorder(combinedStream, { mimeType: 'video/webm;codecs=vp8,opus' });
+            mediaRecorder.ondataavailable = (e) => {
+                if (e.data.size > 0) recordedChunks.push(e.data);
+            };
+            
+            mediaRecorder.start(500);
+
+            // Sequentially loop and process each file at 4x speed
             for (let i = 0; i < selectedFiles.length; i++) {
-                status.innerText = `Recording video ${i + 1} of ${selectedFiles.length}... Do not close this tab.`;
+                status.innerText = `Turbo processing video ${i + 1} of ${selectedFiles.length}...`;
                 
                 const fileUrl = URL.createObjectURL(selectedFiles[i]);
                 hiddenPlayer.src = fileUrl;
                 
                 await new Promise((resolve) => {
                     hiddenPlayer.onloadeddata = () => {
+                        hiddenPlayer.playbackRate = 4.0; // 400% processing speed increase
+                        hiddenPlayer.volume = 1.0;       // Keeps audio processing track data alive
                         hiddenPlayer.play();
-                        startDrawing();
-
-                        // Lazy initialize recorder tracks on the first file run execution
-                        if (!mediaRecorder) {
-                            canvasStream = hiddenCanvas.captureStream(30);
-                            
-                            // Native Web Audio Routing to capture video element audio cleanly
-                            audioContext = new (window.AudioContext || window.webkitAudioContext)();
-                            audioDestination = audioContext.createMediaStreamDestination();
-                            const source = audioContext.createMediaElementSource(hiddenPlayer);
-                            source.connect(audioDestination);
-                            source.connect(audioContext.destination); // Let user hear sound during compile if unmuted
-
-                            // Combine video frame stream and high fidelity audio track stream together
-                            const combinedStream = new MediaStream([
-                                ...canvasStream.getVideoTracks(),
-                                ...audioDestination.stream.getAudioTracks()
-                            ]);
-
-                            // Set up recorder
-                            mediaRecorder = new MediaRecorder(combinedStream, { mimeType: 'video/webm;codecs=vp8,opus' });
-                            mediaRecorder.ondataavailable = (e) => {
-                                if (e.data.size > 0) recordedChunks.push(e.data);
-                            };
-                            mediaRecorder.start(1000); // Save chunks every second to protect memory
-                        }
+                        renderFrame();
                         resolve();
                     };
                 });
 
-                // Wait until this specific video plays out completely to its natural end
+                // Wait until video timeline hits completion
                 await new Promise((resolve) => {
                     hiddenPlayer.onended = () => {
-                        stopDrawing();
                         URL.revokeObjectURL(fileUrl);
                         resolve();
                     };
                 });
             }
 
-            // Finish up streams recording completely
-            status.innerText = "Wrapping up master track file wrapper details...";
+            // Clean up recording parameters
+            status.innerText = "Encoding master track details...";
+            isProcessing = false;
             mediaRecorder.stop();
             
             mediaRecorder.onstop = () => {
@@ -235,9 +240,9 @@
                 outputVideo.style.display = "block";
                 downloadBtn.style.display = "block";
                 
-                status.innerText = "Success! Your fully stitched file is ready to view and download.";
+                status.innerText = "Success! Your fully stitched file is ready with layout bars and audio intact.";
                 mergeBtn.disabled = false;
-                if(audioContext) audioContext.close();
+                audioContext.close();
             };
         });
 
@@ -245,7 +250,7 @@
             if (!finalBlobUrl) return;
             const a = document.createElement('a');
             a.href = finalBlobUrl;
-            a.download = 'perfectly_merged_stream.webm';
+            a.download = 'accelerated_merged_video.webm';
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
