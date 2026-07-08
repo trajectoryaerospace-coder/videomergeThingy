@@ -90,7 +90,7 @@
 
     <div class="wrapper">
         <h2>Native MP4 Video Merger</h2>
-        <p class="subtitle">A lightweight, crash-free pipeline that exports standard, seekable MP4 files natively.</p>
+        <p class="subtitle">Lightweight local pipeline exporting standard, seekable video files with full audio track syncing.</p>
         
         <div class="upload-zone">
             <span style="font-size: 40px; display:block; margin-bottom:10px;">🎬</span>
@@ -98,14 +98,14 @@
             <input type="file" id="videoInput" accept="video/mp4" multiple>
         </div>
 
-        <button id="mergeBtn" class="btn">Stitch Into Proper MP4</button>
-        <button id="downloadBtn" class="btn">⬇️ Download Finished MP4</button>
+        <button id="mergeBtn" class="btn">Stitch Into Proper Video</button>
+        <button id="downloadBtn" class="btn">⬇️ Download Finished File</button>
         
         <div id="status">Waiting for files...</div>
         <video id="outputVideo" class="video-preview" controls></video>
     </div>
 
-    <video id="hiddenPlayer" class="invisible-engine" muted playsinline crossorigin="anonymous"></video>
+    <video id="hiddenPlayer" class="invisible-engine" playsinline crossorigin="anonymous"></video>
     <canvas id="hiddenCanvas" class="invisible-engine"></canvas>
 
     <script>
@@ -124,7 +124,7 @@
         let finalMp4Url = null;
         let isProcessing = false;
 
-        // Persistent audio routing nodes to prevent "already connected" crashes
+        // Persistent audio routing components
         let audioCtx = null;
         let audioDest = null;
         let audioSource = null;
@@ -133,7 +133,7 @@
             selectedFiles = Array.from(videoInput.files);
             if (selectedFiles.length >= 2) {
                 uploadText.innerHTML = `<strong>${selectedFiles.length} videos loaded</strong>`;
-                status.innerText = "Ready to compile straight to an MP4 container.";
+                status.innerText = "Ready to compile.";
                 mergeBtn.style.display = "block";
                 downloadBtn.style.display = "none";
                 outputVideo.style.display = "none";
@@ -146,20 +146,21 @@
         mergeBtn.addEventListener('click', async () => {
             mergeBtn.disabled = true;
             isProcessing = true;
-            status.innerText = "Configuring media recorder channels...";
+            status.innerText = "Opening audio recording tracks...";
 
             try {
                 let recordedChunks = [];
-                const targetW = 1280; // Sharp, standard 720p canvas
+                const targetW = 1280; 
                 const targetH = 720;
                 hiddenCanvas.width = targetW;
                 hiddenCanvas.height = targetH;
 
-                // Safely initialize the audio pipeline exactly once
+                // Fire up the digital soundcard graph
                 if (!audioCtx) {
                     audioCtx = new (window.AudioContext || window.webkitAudioContext)();
                     audioDest = audioCtx.createMediaStreamDestination();
                     audioSource = audioCtx.createMediaElementSource(hiddenPlayer);
+                    // Reroute audio strictly to recorder stream (prevents double audio echo out of speakers)
                     audioSource.connect(audioDest);
                 }
                 
@@ -167,7 +168,6 @@
                     await audioCtx.resume();
                 }
 
-                // Render frame loop logic
                 function renderFrame() {
                     if (!isProcessing) return;
                     ctx.fillStyle = "black";
@@ -184,15 +184,10 @@
                     requestAnimationFrame(renderFrame);
                 }
 
-                // Determine the best native MP4 configuration supported by your device
+                // Auto-detect container structures supported by the current device
                 let optimalMimeType = 'video/mp4;codecs=avc1,mp4a.40.2';
-                if (!MediaRecorder.isTypeSupported(optimalMimeType)) {
-                    optimalMimeType = 'video/mp4';
-                }
-                if (!MediaRecorder.isTypeSupported(optimalMimeType)) {
-                    // Fallback container if the browser completely hides MP4 rendering parameters
-                    optimalMimeType = 'video/webm;codecs=vp8,opus';
-                }
+                if (!MediaRecorder.isTypeSupported(optimalMimeType)) optimalMimeType = 'video/mp4';
+                if (!MediaRecorder.isTypeSupported(optimalMimeType)) optimalMimeType = 'video/webm;codecs=vp8,opus';
 
                 const canvasStream = hiddenCanvas.captureStream(30);
                 const outputStream = new MediaStream([
@@ -208,7 +203,7 @@
                 
                 mediaRecorder.start(250);
 
-                // Seamlessly cycle through every single video
+                // Process files sequentially
                 for (let i = 0; i < selectedFiles.length; i++) {
                     status.innerText = `Stitching clip ${i + 1} of ${selectedFiles.length}...`;
                     const fileUrl = URL.createObjectURL(selectedFiles[i]);
@@ -216,13 +211,14 @@
                     
                     await new Promise((resolve, reject) => {
                         hiddenPlayer.onloadeddata = () => {
-                            hiddenPlayer.playbackRate = 2.0; // Steady 2x acceleration speed
+                            hiddenPlayer.muted = false; // CRITICAL: Forces browser to keep audio processing alive
                             hiddenPlayer.volume = 1.0;
+                            hiddenPlayer.playbackRate = 2.0; // Fast 2x processing
                             hiddenPlayer.play().catch(reject);
                             renderFrame();
                             resolve();
                         };
-                        hiddenPlayer.onerror = () => reject(new Error("File error encountered."));
+                        hiddenPlayer.onerror = () => reject(new Error("File loading failure."));
                     });
 
                     await new Promise((resolve) => {
@@ -233,8 +229,7 @@
                     });
                 }
 
-                // Wrap up the recording parameters cleanly
-                status.innerText = "Finalizing video track index rules...";
+                status.innerText = "Finishing audio/video track index map...";
                 isProcessing = false;
                 mediaRecorder.stop();
                 
@@ -246,7 +241,7 @@
                     outputVideo.style.display = "block";
                     downloadBtn.style.display = "block";
                     
-                    status.innerText = "Success! Your proper, seekable video file is ready.";
+                    status.innerText = "Success! Your proper, seekable video file is ready with full audio.";
                     mergeBtn.disabled = false;
                 };
 
@@ -262,8 +257,7 @@
             if (!finalMp4Url) return;
             const a = document.createElement('a');
             a.href = finalMp4Url;
-            // Name the file based on the container format used
-            const isWebm = hiddenPlayer.src.includes('webm');
+            const isWebm = optimalMimeType.includes('webm');
             a.download = isWebm ? 'merged_sequence.webm' : 'merged_sequence.mp4';
             document.body.appendChild(a);
             a.click();
