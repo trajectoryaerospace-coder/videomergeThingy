@@ -150,7 +150,7 @@
         mergeBtn.addEventListener('click', async () => {
             mergeBtn.disabled = true;
             isProcessing = true;
-            status.innerText = "Initializing recording engines...";
+            status.innerText = "Initializing recording engines... (Please click anywhere on page if prompted)";
 
             let recordedChunks = [];
             const targetW = 1280; // High-quality 720p base standard
@@ -158,7 +158,7 @@
             hiddenCanvas.width = targetW;
             hiddenCanvas.height = targetH;
 
-            // Persistent continuous audio routing mapping
+            // Audio track setups
             const audioContext = new (window.AudioContext || window.webkitAudioContext)();
             await audioContext.resume();
             
@@ -232,14 +232,13 @@
                 audioContext.close();
 
                 try {
-                    // Initialize lightweight webassembly transcode layer
                     if (!ffmpeg.isLoaded()) {
                         await ffmpeg.load();
                     }
 
                     ffmpeg.FS('writeFile', 'temp.webm', await fetchFile(rawWebmBlob));
 
-                    // Execute a clean container transformation to native seekable H.264/AAC MP4
+                    // Convert to native seekable H.264/AAC MP4 framework
                     await ffmpeg.run('-i', 'temp.webm', '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac', 'final.mp4');
 
                     const data = ffmpeg.FS('readFile', 'final.mp4');
@@ -257,7 +256,7 @@
                 } catch (err) {
                     console.error(err);
                     status.innerText = "The pipeline conversion failed. Try using fewer or shorter clips.";
-                } tyranny {
+                } finally {
                     mergeBtn.disabled = false;
                 }
             };
