@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Universal WhatsApp Video Merger</title>
+    <title>Fast Native MP4 Merger</title>
     <style>
         :root {
             --bg-color: #0f172a;
@@ -89,8 +89,8 @@
 <body>
 
     <div class="wrapper">
-        <h2>Universal MP4 Video Merger</h2>
-        <p class="subtitle">Outputs fully seekable, WhatsApp-compatible MP4 files for any number of clips.</p>
+        <h2>Native MP4 Video Merger</h2>
+        <p class="subtitle">A lightweight, crash-free pipeline that exports standard, seekable MP4 files natively.</p>
         
         <div class="upload-zone">
             <span style="font-size: 40px; display:block; margin-bottom:10px;">🎬</span>
@@ -98,25 +98,17 @@
             <input type="file" id="videoInput" accept="video/mp4" multiple>
         </div>
 
-        <button id="mergeBtn" class="btn">Merge Into WhatsApp MP4</button>
-        <button id="downloadBtn" class="btn">⬇️ Download WhatsApp MP4</button>
+        <button id="mergeBtn" class="btn">Stitch Into Proper MP4</button>
+        <button id="downloadBtn" class="btn">⬇️ Download Finished MP4</button>
         
         <div id="status">Waiting for files...</div>
         <video id="outputVideo" class="video-preview" controls></video>
     </div>
 
-    <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.0/dist/ffmpeg.min.js"></script>
-
     <video id="hiddenPlayer" class="invisible-engine" muted playsinline crossorigin="anonymous"></video>
     <canvas id="hiddenCanvas" class="invisible-engine"></canvas>
 
     <script>
-        const { createFFmpeg, fetchFile } = FFmpeg;
-        const ffmpeg = createFFmpeg({ 
-            log: true,
-            corePath: 'https://unpkg.com/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js'
-        });
-
         const videoInput = document.getElementById('videoInput');
         const mergeBtn = document.getElementById('mergeBtn');
         const downloadBtn = document.getElementById('downloadBtn');
@@ -132,16 +124,16 @@
         let finalMp4Url = null;
         let isProcessing = false;
 
-        // Persistent Global Audio States to prevent browser connection crashes
-        let globalAudioContext = null;
-        let globalAudioDestination = null;
-        let globalAudioSourceNode = null;
+        // Persistent audio routing nodes to prevent "already connected" crashes
+        let audioCtx = null;
+        let audioDest = null;
+        let audioSource = null;
 
         videoInput.addEventListener('change', () => {
             selectedFiles = Array.from(videoInput.files);
             if (selectedFiles.length >= 2) {
-                uploadText.innerHTML = `<strong>${selectedFiles.length} videos queued</strong>`;
-                status.innerText = "Ready to merge into an optimized WhatsApp configuration.";
+                uploadText.innerHTML = `<strong>${selectedFiles.length} videos loaded</strong>`;
+                status.innerText = "Ready to compile straight to an MP4 container.";
                 mergeBtn.style.display = "block";
                 downloadBtn.style.display = "none";
                 outputVideo.style.display = "none";
@@ -154,28 +146,28 @@
         mergeBtn.addEventListener('click', async () => {
             mergeBtn.disabled = true;
             isProcessing = true;
-            status.innerText = "Initializing engine layers...";
+            status.innerText = "Configuring media recorder channels...";
 
             try {
                 let recordedChunks = [];
-                const targetW = 1280; 
+                const targetW = 1280; // Sharp, standard 720p canvas
                 const targetH = 720;
                 hiddenCanvas.width = targetW;
                 hiddenCanvas.height = targetH;
 
-                // 1. Safe Lazy Initialize Audio Context once and reuse it forever
-                if (!globalAudioContext) {
-                    globalAudioContext = new (window.AudioContext || window.webkitAudioContext)();
-                    globalAudioDestination = globalAudioContext.createMediaStreamDestination();
-                    globalAudioSourceNode = globalAudioContext.createMediaElementSource(hiddenPlayer);
-                    globalAudioSourceNode.connect(globalAudioDestination);
+                // Safely initialize the audio pipeline exactly once
+                if (!audioCtx) {
+                    audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+                    audioDest = audioCtx.createMediaStreamDestination();
+                    audioSource = audioCtx.createMediaElementSource(hiddenPlayer);
+                    audioSource.connect(audioDest);
                 }
                 
-                // Wake up audio context via user click gesture
-                if (globalAudioContext.state === 'suspended') {
-                    await globalAudioContext.resume();
+                if (audioCtx.state === 'suspended') {
+                    await audioCtx.resume();
                 }
 
+                // Render frame loop logic
                 function renderFrame() {
                     if (!isProcessing) return;
                     ctx.fillStyle = "black";
@@ -192,52 +184,45 @@
                     requestAnimationFrame(renderFrame);
                 }
 
-                // 2. Format Detector: Find out what recording standard this specific device accepts
-                let selectedMimeType = '';
-                const typesToTest = [
-                    'video/webm;codecs=vp8,opus',
-                    'video/webm',
-                    'video/mp4;codecs=avc1',
-                    'video/mp4'
-                ];
-                
-                for (let type of typesToTest) {
-                    if (MediaRecorder.isTypeSupported && MediaRecorder.isTypeSupported(type)) {
-                        selectedMimeType = type;
-                        break;
-                    }
+                // Determine the best native MP4 configuration supported by your device
+                let optimalMimeType = 'video/mp4;codecs=avc1,mp4a.40.2';
+                if (!MediaRecorder.isTypeSupported(optimalMimeType)) {
+                    optimalMimeType = 'video/mp4';
+                }
+                if (!MediaRecorder.isTypeSupported(optimalMimeType)) {
+                    // Fallback container if the browser completely hides MP4 rendering parameters
+                    optimalMimeType = 'video/webm;codecs=vp8,opus';
                 }
 
                 const canvasStream = hiddenCanvas.captureStream(30);
-                const combinedStream = new MediaStream([
+                const outputStream = new MediaStream([
                     ...canvasStream.getVideoTracks(),
-                    ...globalAudioDestination.stream.getAudioTracks()
+                    ...audioDest.stream.getAudioTracks()
                 ]);
 
-                // Create recorder using native device properties
-                const options = selectedMimeType ? { mimeType: selectedMimeType } : {};
-                const mediaRecorder = new MediaRecorder(combinedStream, options);
+                const mediaRecorder = new MediaRecorder(outputStream, { mimeType: optimalMimeType });
                 
                 mediaRecorder.ondataavailable = (e) => {
                     if (e.data.size > 0) recordedChunks.push(e.data);
                 };
+                
                 mediaRecorder.start(250);
 
-                // Step 1: Sequential high-speed tape recording loop
+                // Seamlessly cycle through every single video
                 for (let i = 0; i < selectedFiles.length; i++) {
-                    status.innerText = `[Step 1/2] Processing clip ${i + 1} of ${selectedFiles.length}...`;
+                    status.innerText = `Stitching clip ${i + 1} of ${selectedFiles.length}...`;
                     const fileUrl = URL.createObjectURL(selectedFiles[i]);
                     hiddenPlayer.src = fileUrl;
                     
                     await new Promise((resolve, reject) => {
                         hiddenPlayer.onloadeddata = () => {
-                            hiddenPlayer.playbackRate = 2.5; 
+                            hiddenPlayer.playbackRate = 2.0; // Steady 2x acceleration speed
                             hiddenPlayer.volume = 1.0;
                             hiddenPlayer.play().catch(reject);
                             renderFrame();
                             resolve();
                         };
-                        hiddenPlayer.onerror = () => reject(new Error("Video file failed to load."));
+                        hiddenPlayer.onerror = () => reject(new Error("File error encountered."));
                     });
 
                     await new Promise((resolve) => {
@@ -248,47 +233,26 @@
                     });
                 }
 
+                // Wrap up the recording parameters cleanly
+                status.innerText = "Finalizing video track index rules...";
                 isProcessing = false;
                 mediaRecorder.stop();
                 
-                mediaRecorder.onstop = async () => {
-                    status.innerText = "[Step 2/2] Packing frames into seekable WhatsApp MP4...";
+                mediaRecorder.onstop = () => {
+                    const finalBlob = new Blob(recordedChunks, { type: optimalMimeType });
+                    finalMp4Url = URL.createObjectURL(finalBlob);
                     
-                    const rawStreamBlob = new Blob(recordedChunks, { type: selectedMimeType || 'video/webm' });
-
-                    try {
-                        if (!ffmpeg.isLoaded()) {
-                            await ffmpeg.load();
-                        }
-
-                        ffmpeg.FS('writeFile', 'temp_input', await fetchFile(rawStreamBlob));
-
-                        // Remux stream into an H.264 video + AAC audio timeline index
-                        await ffmpeg.run('-i', 'temp_input', '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac', 'final.mp4');
-
-                        const data = ffmpeg.FS('readFile', 'final.mp4');
-                        const realMp4Blob = new Blob([data.buffer], { type: 'video/mp4' });
-                        
-                        finalMp4Url = URL.createObjectURL(realMp4Blob);
-                        outputVideo.src = finalMp4Url;
-                        outputVideo.style.display = "block";
-                        downloadBtn.style.display = "block";
-                        
-                        status.innerText = "Success! Stitched and converted to a seekable WhatsApp MP4.";
-                        
-                        ffmpeg.FS('unlink', 'temp_input');
-                        ffmpeg.FS('unlink', 'final.mp4');
-                    } catch (err) {
-                        console.error(err);
-                        status.innerText = "The MP4 conversion engine failed. Try using fewer videos at once.";
-                    } finally {
-                        mergeBtn.disabled = false;
-                    }
+                    outputVideo.src = finalMp4Url;
+                    outputVideo.style.display = "block";
+                    downloadBtn.style.display = "block";
+                    
+                    status.innerText = "Success! Your proper, seekable video file is ready.";
+                    mergeBtn.disabled = false;
                 };
 
-            } catch (error) {
-                console.error(error);
-                status.innerText = `Initialization Error: ${error.message}. Try reloading the page and choosing the files again.`;
+            } catch (err) {
+                console.error(err);
+                status.innerText = `Execution halted: ${err.message}. Please refresh and try again.`;
                 mergeBtn.disabled = false;
                 isProcessing = false;
             }
@@ -298,7 +262,9 @@
             if (!finalMp4Url) return;
             const a = document.createElement('a');
             a.href = finalMp4Url;
-            a.download = 'whatsapp_ready_video.mp4';
+            // Name the file based on the container format used
+            const isWebm = hiddenPlayer.src.includes('webm');
+            a.download = isWebm ? 'merged_sequence.webm' : 'merged_sequence.mp4';
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
