@@ -3,13 +3,13 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>High-Speed Video Merger</title>
+    <title>Universal WhatsApp Video Merger</title>
     <style>
         :root {
             --bg-color: #0f172a;
             --card-bg: #1e293b;
-            --accent-color: #3b82f6;
-            --accent-hover: #2563eb;
+            --accent-color: #2563eb;
+            --accent-hover: #1d4ed8;
             --success-color: #10b981;
             --success-hover: #059669;
             --text-main: #f8fafc;
@@ -18,7 +18,7 @@
         }
 
         body {
-            font-family: 'Segoe UI', Roboto, Arial, sans-serif;
+            font-family: 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
             background-color: var(--bg-color);
             color: var(--text-main);
             margin: 0;
@@ -81,23 +81,16 @@
         #status { margin-top: 20px; font-size: 14px; color: var(--text-muted); line-height: 1.5; }
         .video-preview { margin-top: 30px; width: 100%; border-radius: 12px; border: 1px solid var(--border-color); background: #000; display: none; }
         
-        /* Keeps player fully processing in DOM without breaking frames or being visible */
         .invisible-engine {
-            position: absolute;
-            top: 0;
-            left: 0;
-            width: 1px;
-            height: 1px;
-            opacity: 0.01;
-            pointer-events: none;
+            position: absolute; top: 0; left: 0; width: 1px; height: 1px; opacity: 0.01; pointer-events: none;
         }
     </style>
 </head>
 <body>
 
     <div class="wrapper">
-        <h2>Turbo Video Merger</h2>
-        <p class="subtitle">Accelerated sequential stitching with full audio capture and auto-scaling layout protection.</p>
+        <h2>Universal MP4 Video Merger</h2>
+        <p class="subtitle">Outputs fully seekable, WhatsApp-compatible MP4 files for any number of clips.</p>
         
         <div class="upload-zone">
             <span style="font-size: 40px; display:block; margin-bottom:10px;">🎬</span>
@@ -105,17 +98,25 @@
             <input type="file" id="videoInput" accept="video/mp4" multiple>
         </div>
 
-        <button id="mergeBtn" class="btn">Stitch & Render Master Video</button>
-        <button id="downloadBtn" class="btn">⬇️ Download Finished MP4</button>
+        <button id="mergeBtn" class="btn">Merge Into WhatsApp MP4</button>
+        <button id="downloadBtn" class="btn">⬇️ Download WhatsApp MP4</button>
         
         <div id="status">Waiting for files...</div>
         <video id="outputVideo" class="video-preview" controls></video>
     </div>
 
-    <video id="hiddenPlayer" class="invisible-engine" playsinline crossorigin="anonymous"></video>
+    <script src="https://unpkg.com/@ffmpeg/ffmpeg@0.11.0/dist/ffmpeg.min.js"></script>
+
+    <video id="hiddenPlayer" class="invisible-engine" muted playsinline crossorigin="anonymous"></video>
     <canvas id="hiddenCanvas" class="invisible-engine"></canvas>
 
     <script>
+        const { createFFmpeg, fetchFile } = FFmpeg;
+        const ffmpeg = createFFmpeg({ 
+            log: true,
+            corePath: 'https://unpkg.com/@ffmpeg/core-st@0.11.1/dist/ffmpeg-core.js'
+        });
+
         const videoInput = document.getElementById('videoInput');
         const mergeBtn = document.getElementById('mergeBtn');
         const downloadBtn = document.getElementById('downloadBtn');
@@ -128,14 +129,15 @@
         const ctx = hiddenCanvas.getContext('2d');
 
         let selectedFiles = [];
-        let finalBlobUrl = null;
+        let finalMp4Url = null;
         let isProcessing = false;
+        let audioSourceNode = null;
 
         videoInput.addEventListener('change', () => {
             selectedFiles = Array.from(videoInput.files);
             if (selectedFiles.length >= 2) {
-                uploadText.innerHTML = `<strong>${selectedFiles.length} videos loaded</strong>`;
-                status.innerText = "Ready to compile at 4x turbo speed with fixed audio routing.";
+                uploadText.innerHTML = `<strong>${selectedFiles.length} videos queued</strong>`;
+                status.innerText = "Ready to merge into an optimized WhatsApp configuration.";
                 mergeBtn.style.display = "block";
                 downloadBtn.style.display = "none";
                 outputVideo.style.display = "none";
@@ -148,26 +150,28 @@
         mergeBtn.addEventListener('click', async () => {
             mergeBtn.disabled = true;
             isProcessing = true;
-            status.innerText = "Initializing sound cards and acceleration layers...";
+            status.innerText = "Initializing recording engines...";
 
             let recordedChunks = [];
-            const targetW = 854;
-            const targetH = 480;
+            const targetW = 1280; // High-quality 720p base standard
+            const targetH = 720;
             hiddenCanvas.width = targetW;
             hiddenCanvas.height = targetH;
 
-            // Unlock and spin up Audio routing directly from the user's click gesture
+            // Persistent continuous audio routing mapping
             const audioContext = new (window.AudioContext || window.webkitAudioContext)();
             await audioContext.resume();
             
             const audioDestination = audioContext.createMediaStreamDestination();
-            const audioSource = audioContext.createMediaElementSource(hiddenPlayer);
-            audioSource.connect(audioDestination);
+            
+            if (!audioSourceNode) {
+                audioSourceNode = audioContext.createMediaElementSource(hiddenPlayer);
+            }
+            audioSourceNode.disconnect();
+            audioSourceNode.connect(audioDestination);
 
-            // Set up high-speed frame processing loop
             function renderFrame() {
                 if (!isProcessing) return;
-
                 ctx.fillStyle = "black";
                 ctx.fillRect(0, 0, targetW, targetH);
 
@@ -179,13 +183,7 @@
                     const newH = vH * ratio;
                     ctx.drawImage(hiddenPlayer, (targetW - newW) / 2, (targetH - newH) / 2, newW, newH);
                 }
-
-                // Request next frame directly from hardware clock
-                if ('requestVideoFrameCallback' in hiddenPlayer) {
-                    hiddenPlayer.requestVideoFrameCallback(renderFrame);
-                } else {
-                    requestAnimationFrame(renderFrame);
-                }
+                requestAnimationFrame(renderFrame);
             }
 
             const canvasStream = hiddenCanvas.captureStream(30);
@@ -198,27 +196,24 @@
             mediaRecorder.ondataavailable = (e) => {
                 if (e.data.size > 0) recordedChunks.push(e.data);
             };
-            
-            mediaRecorder.start(500);
+            mediaRecorder.start(250);
 
-            // Sequentially loop and process each file at 4x speed
+            // Step 1: Sequential high-speed tape recording loop
             for (let i = 0; i < selectedFiles.length; i++) {
-                status.innerText = `Turbo processing video ${i + 1} of ${selectedFiles.length}...`;
-                
+                status.innerText = `[Step 1/2] Copying video clip ${i + 1} of ${selectedFiles.length}...`;
                 const fileUrl = URL.createObjectURL(selectedFiles[i]);
                 hiddenPlayer.src = fileUrl;
                 
                 await new Promise((resolve) => {
                     hiddenPlayer.onloadeddata = () => {
-                        hiddenPlayer.playbackRate = 4.0; // 400% processing speed increase
-                        hiddenPlayer.volume = 1.0;       // Keeps audio processing track data alive
+                        hiddenPlayer.playbackRate = 2.5; // Balanced fast speed encoding
+                        hiddenPlayer.volume = 1.0;
                         hiddenPlayer.play();
                         renderFrame();
                         resolve();
                     };
                 });
 
-                // Wait until video timeline hits completion
                 await new Promise((resolve) => {
                     hiddenPlayer.onended = () => {
                         URL.revokeObjectURL(fileUrl);
@@ -227,30 +222,52 @@
                 });
             }
 
-            // Clean up recording parameters
-            status.innerText = "Encoding master track details...";
             isProcessing = false;
             mediaRecorder.stop();
             
-            mediaRecorder.onstop = () => {
-                const finalBlob = new Blob(recordedChunks, { type: 'video/webm' });
-                finalBlobUrl = URL.createObjectURL(finalBlob);
+            mediaRecorder.onstop = async () => {
+                status.innerText = "[Step 2/2] Remuxing stream into a seekable WhatsApp MP4...";
                 
-                outputVideo.src = finalBlobUrl;
-                outputVideo.style.display = "block";
-                downloadBtn.style.display = "block";
-                
-                status.innerText = "Success! Your fully stitched file is ready with layout bars and audio intact.";
-                mergeBtn.disabled = false;
+                const rawWebmBlob = new Blob(recordedChunks, { type: 'video/webm' });
                 audioContext.close();
+
+                try {
+                    // Initialize lightweight webassembly transcode layer
+                    if (!ffmpeg.isLoaded()) {
+                        await ffmpeg.load();
+                    }
+
+                    ffmpeg.FS('writeFile', 'temp.webm', await fetchFile(rawWebmBlob));
+
+                    // Execute a clean container transformation to native seekable H.264/AAC MP4
+                    await ffmpeg.run('-i', 'temp.webm', '-c:v', 'libx264', '-preset', 'ultrafast', '-c:a', 'aac', 'final.mp4');
+
+                    const data = ffmpeg.FS('readFile', 'final.mp4');
+                    const realMp4Blob = new Blob([data.buffer], { type: 'video/mp4' });
+                    
+                    finalMp4Url = URL.createObjectURL(realMp4Blob);
+                    outputVideo.src = finalMp4Url;
+                    outputVideo.style.display = "block";
+                    downloadBtn.style.display = "block";
+                    
+                    status.innerText = "Success! Generated a true seekable MP4. Ready for mobile and WhatsApp!";
+                    
+                    ffmpeg.FS('unlink', 'temp.webm');
+                    ffmpeg.FS('unlink', 'final.mp4');
+                } catch (err) {
+                    console.error(err);
+                    status.innerText = "The pipeline conversion failed. Try using fewer or shorter clips.";
+                } tyranny {
+                    mergeBtn.disabled = false;
+                }
             };
         });
 
         downloadBtn.addEventListener('click', () => {
-            if (!finalBlobUrl) return;
+            if (!finalMp4Url) return;
             const a = document.createElement('a');
-            a.href = finalBlobUrl;
-            a.download = 'accelerated_merged_video.webm';
+            a.href = finalMp4Url;
+            a.download = 'whatsapp_ready_video.mp4';
             document.body.appendChild(a);
             a.click();
             document.body.removeChild(a);
